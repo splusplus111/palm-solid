@@ -1,0 +1,8 @@
+body { font-family: Arial, sans-serif; background: #f8f8f8; margin: 0; padding: 20px; }
+h1 { color: #2c3e50; }
+table { background: #fff; border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+th, td { padding: 8px 12px; border: 1px solid #ccc; }
+th { background: #eee; }
+form { background: #fff; padding: 10px; border-radius: 5px; }
+input[type="text"] { width: 80px; }
+input[type="submit"] { margin-top: 10px; }

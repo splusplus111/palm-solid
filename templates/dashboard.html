@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Solana Bot Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h1>Solana Bot Dashboard</h1>
+    <h2>Status: Running</h2>
+    <h3>Profit: ${{ summary.profit }}</h3>
+    <h3>Total Trades: {{ summary.total_trades }}</h3>
+    <h3>Recent Trades</h3>
+    <table border="1">
+        <tr><th>Mint</th><th>Action</th><th>Amount</th><th>Price</th><th>Timestamp</th></tr>
+        {% for t in summary.trades %}
+        <tr>
+            <td>{{ t.mint }}</td>
+            <td>{{ t.action }}</td>
+            <td>{{ t.amount }}</td>
+            <td>{{ t.price }}</td>
+            <td>{{ t.timestamp }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <h3>Config</h3>
+    <form method="post" action="/config">
+        Hold Time: <input type="text" name="SCALP_HOLD_SEC" value="{{ config.hold_time }}"><br>
+        Slippage Buy: <input type="text" name="SLIPPAGE_BPS_BUY" value="{{ config.slippage_buy }}"><br>
+        Slippage Sell: <input type="text" name="SLIPPAGE_BPS_SELL" value="{{ config.slippage_sell }}"><br>
+        Stop Loss: <input type="text" name="MCAP_STOP_LOSS" value="{{ config.stop_loss }}"><br>
+        <input type="submit" value="Update Config">
+    </form>
+</body>
+</html>

@@ -95,7 +95,12 @@ class Wallet:
 
     # ------------ RPC helpers ------------
     async def get_lamports(self) -> int:
-        resp = await self.client.get_balance(self.pubkey)
+        from retry_utils import retry_async
+        try:
+            resp = await retry_async(self.client.get_balance, self.pubkey, retries=5, delay=1, backoff=2, exceptions=(Exception,))
+        except Exception as e:
+            # Optionally log or handle the error
+            raise
         return resp.value
 
     async def _get_latest_blockhash(self) -> SHash:

@@ -23,6 +23,8 @@ from config import (
     PRIORITY_FEE_LAMPORTS,
     MIN_LIQUIDITY_USD,
 )
+from analytics import analytics
+from rugpull_detector import check_rug_pull
 
 # --- Per-side slippage with safe fallback ------------------------------------
 # Prefer explicit per-side values from config.py; if missing, fall back to env
@@ -355,6 +357,7 @@ async def seller_loop(wallet: Wallet, jup: Jupiter, sell_queue: asyncio.Queue):
             tx_b64 = await jup.swap_tx(q, str(wallet.kp.pubkey()), tip_lamports, slippage_bps=SLIPPAGE_BPS_SELL)
             sell_sig = await wallet.send_serialized_tx(tx_b64)
             log_info(f"💸 sell {mint} sig: {sell_sig}")
+            analytics.log_trade(mint, "sell", sell_amount, 0)  # TODO: fill with actual price
             note_activity()
 
         except Exception as e:
@@ -538,3 +541,48 @@ async def coordinator(candidates_q: asyncio.Queue):
             await wallet.close()   # ← use .close(), not .aclose()
         except Exception:
             pass
+
+# --- Instant buy engine for token monitor integration ---
+async def instant_buy(event_data):
+    """
+    Called by token_monitor when a new Pump.fun token is detected.
+    event_data: dict from websocket logs notification
+    """
+    from wallet import Wallet
+    from jupiter import Jupiter
+    
+    # Extract mint address from event_data (customize as needed)
+    logs = event_data.get("result", {}).get("value", {}).get("logs", [])
+    mint = None
+    for log in logs:
+        if "mint" in log:
+            # crude extraction, customize for your log format
+            parts = log.split()
+            for part in parts:
+                if len(part) == 44:  # Solana mint length
+                    mint = part
+                    break
+        if mint:
+            break
+    if not mint:
+        print("No mint found in logs, skipping buy.")
+        return
+
+    wallet = Wallet()
+    jup = Jupiter()
+    sell_queue = asyncio.Queue()
+
+    # Configurable hold time, slippage, stop-loss
+    hold_time = float(os.getenv("SCALP_HOLD_SEC", "3.0"))
+    slippage_buy = int(os.getenv("SLIPPAGE_BPS_BUY", "9000"))
+    stop_loss = float(os.getenv("MCAP_STOP_LOSS", "0.05"))
+
+    # Rug-pull detection
+    if await check_rug_pull(mint):
+        print(f"Rug-pull detected for mint {mint}, skipping buy.")
+        return
+
+    await snipe_once(wallet, jup, mint, sell_queue)
+    # Log buy trade (amount and price can be customized)
+    analytics.log_trade(mint, "buy", 1, 0)  # TODO: fill with actual amount/price
+    asyncio.create_task(seller_loop(wallet, jup, sell_queue))
