@@ -4,14 +4,66 @@
     <meta charset="UTF-8">
     <title>Solana Bot Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
+    <style>
+        #log-panel {
+            background: #111;
+            color: #0f0;
+            font-family: monospace;
+            height: 200px;
+            overflow-y: scroll;
+            padding: 10px;
+            border: 1px solid #333;
+        }
+        .metrics-table, .missed-table, .trades-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .metrics-table th, .metrics-table td, .missed-table th, .missed-table td, .trades-table th, .trades-table td {
+            border: 1px solid #ccc;
+            padding: 4px 8px;
+        }
+        .charts-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 32px;
+            margin-bottom: 32px;
+        }
+        .chart-container {
+            background: #222;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px #0004;
+            padding: 16px;
+            flex: 1 1 350px;
+            min-width: 350px;
+            max-width: 600px;
+        }
+        canvas { background: #fff; border-radius: 8px; }
+        h3 { margin-top: 32px; }
+    </style>
 </head>
 <body>
     <h1>Solana Bot Dashboard</h1>
     <h2>Status: Running</h2>
     <h3>Profit: ${{ summary.profit }}</h3>
     <h3>Total Trades: {{ summary.total_trades }}</h3>
+
+    <h3>Performance Metrics</h3>
+    <table class="metrics-table">
+        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Detection to Buy (ms)</td><td id="metric-detect-buy">--</td></tr>
+        <tr><td>Buy to Sell (ms)</td><td id="metric-buy-sell">--</td></tr>
+        <tr><td>RPC Latency (ms)</td><td id="metric-rpc-latency">--</td></tr>
+    </table>
+
+    <h3>Missed Buys/Sells</h3>
+    <table class="missed-table" id="missed-table">
+        <tr><th>Token</th><th>Detected</th><th>Buy Attempted</th><th>Buy Time</th><th>Sell Attempted</th><th>Sell Time</th><th>Reason</th></tr>
+        <!-- Placeholder row -->
+        <tr><td>NEWCOIN</td><td>12:01:02</td><td>No</td><td>--</td><td>No</td><td>--</td><td>Slippage too high</td></tr>
+    </table>
+
     <h3>Recent Trades</h3>
-    <table border="1">
+    <table class="trades-table">
         <tr><th>Mint</th><th>Action</th><th>Amount</th><th>Price</th><th>Timestamp</th></tr>
         {% for t in summary.trades %}
         <tr>
@@ -23,6 +75,11 @@
         </tr>
         {% endfor %}
     </table>
+
+    <h3>Real-Time Log</h3>
+    <button id="download-log-btn" style="margin-bottom:10px;">Download Log</button>
+    <div id="log-panel">Loading logs...</div>
+
     <h3>Config</h3>
     <form method="post" action="/config">
         Hold Time: <input type="text" name="SCALP_HOLD_SEC" value="{{ config.hold_time }}"><br>
@@ -31,5 +88,144 @@
         Stop Loss: <input type="text" name="MCAP_STOP_LOSS" value="{{ config.stop_loss }}"><br>
         <input type="submit" value="Update Config">
     </form>
+
+    <div class="charts-grid">
+        <div class="chart-container">
+            <h3>Profit Over Time</h3>
+            <canvas id="profitChart" width="600" height="200"></canvas>
+        </div>
+        <div class="chart-container">
+            <h3>Trades Per Minute</h3>
+            <canvas id="tpmChart" width="600" height="200"></canvas>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+    let profitChart, tpmChart;
+    let profitData = {
+        labels: [],
+        datasets: [{
+            label: 'Profit ($)',
+            data: [],
+            borderColor: 'rgba(75,192,192,1)',
+            backgroundColor: 'rgba(75,192,192,0.2)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 3
+        }]
+    };
+    let tpmData = {
+        labels: [],
+        datasets: [{
+            label: 'Trades/Min',
+            data: [],
+            backgroundColor: 'rgba(54, 162, 235, 0.7)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            borderWidth: 1
+        }]
+    };
+    function initCharts() {
+        profitChart = new Chart(document.getElementById('profitChart').getContext('2d'), {
+            type: 'line',
+            data: profitData,
+            options: {
+                plugins: { legend: { display: false } },
+                scales: { x: { display: true }, y: { display: true } }
+            }
+        });
+        tpmChart = new Chart(document.getElementById('tpmChart').getContext('2d'), {
+            type: 'bar',
+            data: tpmData,
+            options: {
+                plugins: { legend: { display: false } },
+                scales: { x: { display: true }, y: { display: true, beginAtZero: true } }
+            }
+        });
+    }
+    async function updateDashboard() {
+        // Update logs
+        try {
+            const logsResp = await fetch('/api/logs');
+            const logs = await logsResp.json();
+            document.getElementById('log-panel').textContent = logs.join('\n');
+        } catch (e) {
+            document.getElementById('log-panel').textContent = 'Error loading logs.';
+        }
+        // Update metrics
+        try {
+            const metricsResp = await fetch('/api/metrics');
+            const metrics = await metricsResp.json();
+            document.getElementById('metric-detect-buy').textContent = metrics.detection_to_buy_ms;
+            document.getElementById('metric-buy-sell').textContent = metrics.buy_to_sell_ms;
+            document.getElementById('metric-rpc-latency').textContent = metrics.rpc_latency_ms;
+        } catch (e) {
+            document.getElementById('metric-detect-buy').textContent = '--';
+            document.getElementById('metric-buy-sell').textContent = '--';
+            document.getElementById('metric-rpc-latency').textContent = '--';
+        }
+        // Update missed buys/sells
+        try {
+            const missedResp = await fetch('/api/missed');
+            const missed = await missedResp.json();
+            const table = document.getElementById('missed-table');
+            // Remove all rows except header
+            while (table.rows.length > 1) table.deleteRow(1);
+            for (const row of missed) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${row.token}</td>
+                    <td>${row.detected}</td>
+                    <td>${row.buy_attempted ? 'Yes' : 'No'}</td>
+                    <td>${row.buy_time || '--'}</td>
+                    <td>${row.sell_attempted ? 'Yes' : 'No'}</td>
+                    <td>${row.sell_time || '--'}</td>
+                    <td>${row.reason}</td>
+                `;
+                table.appendChild(tr);
+            }
+        } catch (e) {
+            // Optionally show error in missed-table
+        }
+        // Update profit chart
+        try {
+            const resp = await fetch('/api/analytics');
+            const analytics = await resp.json();
+            const now = new Date();
+            profitData.labels.push(now.toLocaleTimeString());
+            profitData.datasets[0].data.push(analytics.profit);
+            if (profitData.labels.length > 20) {
+                profitData.labels.shift();
+                profitData.datasets[0].data.shift();
+            }
+            if (profitChart) profitChart.update();
+            // Trades Per Minute chart
+            let tpm = 0;
+            let minuteLabels = [];
+            let minuteCounts = [];
+            if (analytics.trades && analytics.trades.length > 0) {
+                const nowSec = Math.floor(Date.now() / 1000);
+                for (let i = 9; i >= 0; i--) {
+                    const minAgo = nowSec - i * 60;
+                    const label = new Date(minAgo * 1000).toLocaleTimeString().slice(0,5);
+                    minuteLabels.push(label);
+                    const count = analytics.trades.filter(t => Math.abs(t.timestamp - minAgo) < 30).length;
+                    minuteCounts.push(count);
+                }
+                tpmData.labels = minuteLabels;
+                tpmData.datasets[0].data = minuteCounts;
+                if (tpmChart) tpmChart.update();
+            }
+        } catch (e) {}
+    }
+    document.getElementById('download-log-btn').onclick = function() {
+        window.open('/download-log', '_blank');
+    };
+    setInterval(updateDashboard, 2000);
+    window.onload = function() {
+        initCharts();
+        updateDashboard();
+    };
+    </script>
 </body>
 </html>

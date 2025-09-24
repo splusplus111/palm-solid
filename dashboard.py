@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from analytics import analytics
 import os
+import tempfile
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -52,6 +53,18 @@ async def update_config_form(
         "MCAP_STOP_LOSS": MCAP_STOP_LOSS
     }}
 
+@app.get("/api/missed")
+def api_missed():
+    return JSONResponse(content=analytics.get_missed())
+
+@app.get("/api/logs")
+def api_logs():
+    return JSONResponse(content=analytics.get_logs())
+
+@app.get("/api/metrics")
+def api_metrics():
+    return JSONResponse(content=analytics.get_metrics())
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     summary = analytics.summary()
@@ -63,5 +76,15 @@ def dashboard(request: Request):
     }
     return templates.TemplateResponse("dashboard.html", {"request": request, "summary": summary, "config": config})
 
+@app.get("/download-log")
+def download_log():
+    # Write the in-memory logs to a temp file and serve it
+    logs = analytics.analytics.get_logs()
+    with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as f:
+        f.write('\n'.join(logs))
+        temp_path = f.name
+    return FileResponse(temp_path, filename="bot-log.txt", media_type="text/plain")
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
